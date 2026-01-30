@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Godown Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/index.css">
+</head>
+
+<body>
+  <div class="app-container">
+    <!-- Mobile Header -->
+    <header class="mobile-header">
+      <button class="menu-btn" onclick="toggleSidebar()" aria-label="Menu">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
+      <span class="mobile-logo">📦 Godown</span>
+    </header>
+
+    <!-- Sidebar Overlay -->
+    <div class="sidebar-overlay" onclick="closeSidebar()"></div>
+
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">📦 Godown</div>
+        <button class="sidebar-close" onclick="closeSidebar()" aria-label="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <nav class="sidebar-nav">
+        <!-- Productivity Folder -->
+        <div class="nav-folder open" data-folder="productivity">
+          <div class="nav-folder-header" onclick="toggleFolder('productivity')">
+            <span><span class="nav-folder-icon">📊</span>Productivity</span>
+            <span class="nav-folder-arrow">▶</span>
+          </div>
+          <div class="nav-folder-items">
+            <a href="#" class="nav-item active" data-page="productivity/tracking">Tracking</a>
+            <a href="#" class="nav-item" data-page="productivity/analysis">Analysis</a>
+            <a href="#" class="nav-item" data-page="productivity/settings">Settings</a>
+          </div>
+        </div>
+
+        <!-- Expenses Folder -->
+        <div class="nav-folder" data-folder="expenses">
+          <div class="nav-folder-header" onclick="toggleFolder('expenses')">
+            <span><span class="nav-folder-icon">💰</span>Expenses</span>
+            <span class="nav-folder-arrow">▶</span>
+          </div>
+          <div class="nav-folder-items">
+            <a href="#" class="nav-item" data-page="expenses/transactions">Transactions</a>
+            <a href="#" class="nav-item" data-page="expenses/settings">Settings</a>
+          </div>
+        </div>
+
+        <!-- General Settings -->
+        <a href="#" class="nav-single" data-page="settings">
+          <span class="nav-single-icon">⚙️</span>
+          General Settings
+        </a>
+      </nav>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content" id="main-content">
+      <div class="loading">Loading...</div>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+
+</html>
