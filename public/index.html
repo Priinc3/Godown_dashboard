@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/index.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <body>
@@ -63,6 +64,18 @@
           <div class="nav-folder-items">
             <a href="#" class="nav-item" data-page="expenses/transactions">Transactions</a>
             <a href="#" class="nav-item" data-page="expenses/settings">Settings</a>
+          </div>
+        </div>
+
+        <!-- Sales Folder -->
+        <div class="nav-folder" data-folder="sales">
+          <div class="nav-folder-header" onclick="toggleFolder('sales')">
+            <span><span class="nav-folder-icon">📈</span>Sales</span>
+            <span class="nav-folder-arrow">▶</span>
+          </div>
+          <div class="nav-folder-items">
+            <a href="#" class="nav-item" data-page="sales/data-sources">Data Sources</a>
+            <a href="#" class="nav-item" data-page="sales/analysis">Analysis</a>
           </div>
         </div>
 
