@@ -135,7 +135,6 @@ async function generateTrackingPage() {
             </div>
             <div class="form-row">
               <div class="form-group"><label class="form-label">Date</label><input type="date" class="form-input" id="edit-date"></div>
-              <div class="form-group"><label class="form-label">Status</label><select class="form-select" id="edit-status"><option value="in-progress">In Progress</option><option value="complete">Complete</option></select></div>
             </div>
             <div class="form-row">
               <div class="form-group"><label class="form-label">Target</label><input type="number" class="form-input" id="edit-target" min="1"></div>
@@ -1195,7 +1194,7 @@ function openFullEditEntry(entry) {
   document.getElementById('edit-date').value = formatDateInput(entry.start_time);
   document.getElementById('edit-target').value = entry.target_quantity;
   document.getElementById('edit-actual').value = entry.actual_quantity || '';
-  document.getElementById('edit-status').value = entry.status;
+
   document.getElementById('edit-notes').value = entry.notes || '';
   document.getElementById('edit-modal').style.display = 'flex';
 }
@@ -1207,13 +1206,14 @@ async function updateFullWorkEntry(e) {
   const btn = e.target.querySelector('button[type="submit"]');
   btn.disabled = true; btn.textContent = 'Saving...';
   const id = document.getElementById('edit-entry-id').value;
-  const status = document.getElementById('edit-status').value;
   const actual = document.getElementById('edit-actual').value;
+  const notes = document.getElementById('edit-notes').value;
   try {
-    if (status === 'complete' && actual) {
-      await API.put(`/work-entries/${id}/complete`, { actual_quantity: parseInt(actual), notes: document.getElementById('edit-notes').value });
+    if (actual) {
+      // Auto-mark as complete when actual quantity is provided
+      await API.put(`/work-entries/${id}/complete`, { actual_quantity: parseInt(actual), notes });
     } else {
-      await API.put(`/work-entries/${id}`, { actual_quantity: actual ? parseInt(actual) : null, notes: document.getElementById('edit-notes').value, status });
+      await API.put(`/work-entries/${id}`, { actual_quantity: null, notes, status: 'in-progress' });
     }
     closeEditModal(); loadPage('productivity/tracking');
   } catch (error) { alert('Error: ' + error.message); btn.disabled = false; btn.textContent = 'Save'; }
