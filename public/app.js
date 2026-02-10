@@ -32,6 +32,8 @@ let currentEditEntry = null;
 let reportPeriod = 'day';
 
 // ===== TRACKING PAGE =====
+let multiTaskCounter = 0;
+
 async function generateTrackingPage() {
   try {
     const [employees, workTypes, products, units, entries, settings] = await Promise.all([
@@ -48,12 +50,16 @@ async function generateTrackingPage() {
     const prodOpts = products.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
     const unitOpts = units.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
 
+    // Store options for dynamic task rows
+    window._trackingOpts = { wtOpts, prodOpts, unitOpts };
+
     const sorted = [...entries].sort((a, b) => {
       if (a.status === 'in-progress' && b.status !== 'in-progress') return -1;
       if (b.status === 'in-progress' && a.status !== 'in-progress') return 1;
       return new Date(b.start_time) - new Date(a.start_time);
     });
 
+    // Group entries by employee + date for average efficiency display
     const entriesHtml = sorted.length === 0 ? '<div class="empty-state"><p class="text-muted">No entries yet.</p></div>' :
       `<div class="entries-list">${sorted.map(e => {
         const eff = e.actual_quantity !== null ? Math.round((e.actual_quantity / e.target_quantity) * 100) : null;
@@ -80,23 +86,34 @@ async function generateTrackingPage() {
           </div>`;
       }).join('')}</div>`;
 
+    multiTaskCounter = 0;
+
     return `
       <div class="page-header"><h1 class="page-title">Tracking</h1><p class="page-subtitle">${settings.shift_duration || 9}h shift</p></div>
       <div class="card">
         <div class="card-header"><h2 class="card-title">New Entry</h2></div>
-        <form id="tracking-form" onsubmit="saveWorkEntry(event)">
+        <form id="tracking-form" onsubmit="saveMultiTaskEntry(event)">
           <div class="form-row">
-            <div class="form-group"><label class="form-label">Employee *</label><select class="form-select" id="employee-select" required><option value="">Select...</option>${empOpts}</select></div>
-            <div class="form-group"><label class="form-label">Work Type *</label><select class="form-select" id="work-type-select" required><option value="">Select...</option>${wtOpts}</select></div>
+            <div class="form-group">
+              <label class="form-label">Employee *</label>
+              <div class="searchable-select-wrap">
+                <input type="text" class="form-input search-select-input" placeholder="Search employee..." oninput="filterSearchSelect(this, 'employee-select')">
+                <select class="form-select" id="employee-select" required><option value="">Select...</option>${empOpts}</select>
+              </div>
+            </div>
           </div>
-          <div class="form-row">
-            <div class="form-group"><label class="form-label">Product</label><select class="form-select" id="product-select"><option value="">Select...</option>${prodOpts}</select></div>
-            <div class="form-group"><label class="form-label">Unit</label><select class="form-select" id="unit-select">${unitOpts}</select></div>
+          
+          <div class="multi-task-section">
+            <div class="multi-task-header">
+              <label class="form-label" style="margin-bottom:0;">Tasks</label>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="addTaskRow()">+ Add Task</button>
+            </div>
+            <div id="task-rows">
+              ${buildTaskRow(0, wtOpts, prodOpts, unitOpts)}
+            </div>
           </div>
-          <div class="form-row">
-            <div class="form-group"><label class="form-label">Target Qty *</label><input type="number" class="form-input" id="target-quantity" required min="1"></div>
-          </div>
-          <button type="submit" class="btn btn-primary">Start Entry</button>
+          
+          <button type="submit" class="btn btn-primary" style="margin-top:var(--space-md);">Start All Entries</button>
         </form>
       </div>
       <div class="card">
@@ -130,6 +147,77 @@ async function generateTrackingPage() {
         </div>
       </div>`;
   } catch (error) { return `<div class="error-message"><p>Error: ${error.message}</p></div>`; }
+}
+
+function buildTaskRow(index, wtOpts, prodOpts, unitOpts) {
+  return `
+    <div class="task-row" data-task-index="${index}">
+      <div class="task-row-header">
+        <span class="task-row-num">Task ${index + 1}</span>
+        ${index > 0 ? `<button type="button" class="btn btn-danger btn-sm task-row-remove" onclick="removeTaskRow(${index})">✕</button>` : ''}
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Work Type *</label>
+          <div class="searchable-select-wrap">
+            <input type="text" class="form-input search-select-input" placeholder="Search work type..." oninput="filterSearchSelect(this, 'wt-${index}')">
+            <select class="form-select" id="wt-${index}" required><option value="">Select...</option>${wtOpts}</select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Product</label>
+          <div class="searchable-select-wrap">
+            <input type="text" class="form-input search-select-input" placeholder="Search product..." oninput="filterSearchSelect(this, 'prod-${index}')">
+            <select class="form-select" id="prod-${index}"><option value="">Select...</option>${prodOpts}</select>
+          </div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Unit</label>
+          <select class="form-select" id="unit-${index}">${unitOpts}</select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Target Qty *</label>
+          <input type="number" class="form-input" id="target-${index}" required min="1">
+        </div>
+      </div>
+    </div>`;
+}
+
+function addTaskRow() {
+  multiTaskCounter++;
+  const { wtOpts, prodOpts, unitOpts } = window._trackingOpts;
+  const container = document.getElementById('task-rows');
+  const div = document.createElement('div');
+  div.innerHTML = buildTaskRow(multiTaskCounter, wtOpts, prodOpts, unitOpts);
+  container.appendChild(div.firstElementChild);
+}
+
+function removeTaskRow(index) {
+  const row = document.querySelector(`[data-task-index="${index}"]`);
+  if (row) row.remove();
+}
+
+// Searchable select filter
+function filterSearchSelect(input, selectId) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  const filter = input.value.toLowerCase();
+  for (let i = 0; i < select.options.length; i++) {
+    const opt = select.options[i];
+    if (!opt.value) { opt.style.display = ''; continue; }
+    opt.style.display = opt.text.toLowerCase().includes(filter) ? '' : 'none';
+  }
+  // Auto-select first visible option if typing
+  if (filter) {
+    for (let i = 0; i < select.options.length; i++) {
+      if (select.options[i].style.display !== 'none' && select.options[i].value) {
+        select.value = select.options[i].value;
+        break;
+      }
+    }
+  }
 }
 
 // ===== ANALYSIS PAGE =====
@@ -1044,6 +1132,43 @@ async function generateGeneralSettingsPage() {
 }
 
 // ===== WORK ENTRY FUNCTIONS =====
+async function saveMultiTaskEntry(e) {
+  e.preventDefault();
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.disabled = true; btn.textContent = 'Saving...';
+
+  const employee_id = parseInt(document.getElementById('employee-select').value);
+  if (!employee_id) { alert('Please select an employee'); btn.disabled = false; btn.textContent = 'Start All Entries'; return; }
+
+  const taskRows = document.querySelectorAll('.task-row');
+  const tasks = [];
+
+  for (const row of taskRows) {
+    const idx = row.dataset.taskIndex;
+    const work_type_id = parseInt(document.getElementById(`wt-${idx}`)?.value);
+    const product_id = parseInt(document.getElementById(`prod-${idx}`)?.value) || null;
+    const unit_id = parseInt(document.getElementById(`unit-${idx}`)?.value);
+    const target_quantity = parseInt(document.getElementById(`target-${idx}`)?.value);
+
+    if (!work_type_id || !target_quantity) {
+      alert(`Task ${parseInt(idx) + 1}: Work type and target quantity are required`);
+      btn.disabled = false; btn.textContent = 'Start All Entries';
+      return;
+    }
+    tasks.push({ employee_id, work_type_id, product_id, unit_id, target_quantity });
+  }
+
+  if (tasks.length === 0) { alert('Add at least one task'); btn.disabled = false; btn.textContent = 'Start All Entries'; return; }
+
+  try {
+    for (const task of tasks) {
+      await API.post('/work-entries', task);
+    }
+    loadPage('productivity/tracking');
+  } catch (error) { alert('Error: ' + error.message); btn.disabled = false; btn.textContent = 'Start All Entries'; }
+}
+
+// Keep old function as fallback
 async function saveWorkEntry(e) {
   e.preventDefault();
   const btn = e.target.querySelector('button[type="submit"]');
