@@ -257,11 +257,15 @@ app.get('/api/analytics/productivity', async (req, res) => {
 // ===== DAILY REPORTS API =====
 app.get('/api/analytics/daily-report', async (req, res) => {
     try {
-        const { period } = req.query;
+        const { period, start_date, end_date, employee_id } = req.query;
         const now = new Date();
-        let startDate;
+        let startDate, endDate;
 
-        if (period === 'week') {
+        if (start_date && end_date) {
+            startDate = new Date(start_date);
+            endDate = new Date(end_date);
+            endDate.setHours(23, 59, 59, 999);
+        } else if (period === 'week') {
             startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
         } else if (period === 'month') {
             startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -269,11 +273,16 @@ app.get('/api/analytics/daily-report', async (req, res) => {
             startDate = new Date(now.setHours(0, 0, 0, 0));
         }
 
+        let query = supabase.from('work_entries')
+            .select(`*, employee:employees(id, name), product:products(id, name), work_type:work_types(id,name)`)
+            .gte('start_time', startDate.toISOString())
+            .eq('status', 'complete');
+
+        if (endDate) query = query.lte('start_time', endDate.toISOString());
+        if (employee_id) query = query.eq('employee_id', parseInt(employee_id));
+
         const [entriesRes, employeesRes, productsRes, workTypesRes] = await Promise.all([
-            supabase.from('work_entries')
-                .select(`*, employee:employees(id, name), product:products(id, name), work_type:work_types(id,name)`)
-                .gte('start_time', startDate.toISOString())
-                .eq('status', 'complete'),
+            query,
             supabase.from('employees').select('*').eq('active', true),
             supabase.from('products').select('*'),
             supabase.from('work_types').select('*')

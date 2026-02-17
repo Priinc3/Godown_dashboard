@@ -222,11 +222,25 @@ function filterSearchSelect(input, selectId) {
 // ===== ANALYSIS PAGE =====
 async function generateAnalysisPage() {
   try {
-    const [analytics, report] = await Promise.all([
-      API.get('/analytics/productivity'),
-      API.get(`/analytics/daily-report?period=${reportPeriod}`)
+    const [employees, analytics] = await Promise.all([
+      getCached('employees', '/employees/active'),
+      API.get('/analytics/productivity')
     ]);
 
+    // Build date range based on period or custom
+    const today = new Date().toISOString().split('T')[0];
+    const savedStart = window._analysisStartDate || today;
+    const savedEnd = window._analysisEndDate || today;
+    const savedEmpId = window._analysisEmployeeId || '';
+
+    let apiUrl = `/analytics/daily-report?start_date=${savedStart}&end_date=${savedEnd}`;
+    if (savedEmpId) apiUrl += `&employee_id=${savedEmpId}`;
+
+    const report = await API.get(apiUrl);
+
+    const empOpts = employees.map(e => `<option value="${e.id}" ${savedEmpId == e.id ? 'selected' : ''}>${e.name}</option>`).join('');
+
+    // Per-task efficiency rows for employee performance
     const empRows = analytics.employeeStats.map(e => `
       <div class="perf-row">
         <span class="perf-name">${e.name}</span>
@@ -260,14 +274,49 @@ async function generateAnalysisPage() {
         <span class="text-success">${p.finalCount?.toLocaleString() || 0} final</span>
       </div>`).join('');
 
+    // Calculate avg efficiency from filtered entries
+    const completedEntries = report.entries.filter(e => e.actual_quantity && e.target_quantity);
+    const avgEff = completedEntries.length > 0
+      ? Math.round(completedEntries.reduce((sum, e) => sum + (e.actual_quantity / e.target_quantity) * 100, 0) / completedEntries.length)
+      : 0;
+
     return `
       <div class="page-header"><h1 class="page-title">Analysis</h1></div>
       
+      <div class="card" style="margin-bottom:var(--space-lg);">
+        <div class="card-header"><h2 class="card-title">Filters</h2></div>
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label class="filter-label">From</label>
+            <input type="date" class="form-input filter-input" id="analysis-start" value="${savedStart}">
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">To</label>
+            <input type="date" class="form-input filter-input" id="analysis-end" value="${savedEnd}">
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">Employee</label>
+            <select class="form-select filter-input" id="analysis-employee">
+              <option value="">All Employees</option>
+              ${empOpts}
+            </select>
+          </div>
+          <div class="filter-group" style="align-self:flex-end;">
+            <button class="btn btn-primary btn-sm" onclick="applyAnalysisFilter()">Apply</button>
+          </div>
+        </div>
+        <div class="period-tabs" style="margin-top:var(--space-sm);">
+          <button class="period-btn" onclick="setAnalysisPeriod('day')">Today</button>
+          <button class="period-btn" onclick="setAnalysisPeriod('week')">Last 7 Days</button>
+          <button class="period-btn" onclick="setAnalysisPeriod('month')">Last 30 Days</button>
+        </div>
+      </div>
+
       <div class="stats-grid">
-        <div class="stat-card"><div class="stat-value">${analytics.totalEmployees}</div><div class="stat-label">Employees</div></div>
-        <div class="stat-card"><div class="stat-value">${analytics.thisWeekCompleted}</div><div class="stat-label">This Week</div></div>
-        <div class="stat-card"><div class="stat-value">${analytics.avgEfficiency}%</div><div class="stat-label">Avg Efficiency</div></div>
-        <div class="stat-card"><div class="stat-value">${analytics.totalUnits.toLocaleString()}</div><div class="stat-label">Total Work Done</div></div>
+        <div class="stat-card"><div class="stat-value">${report.totalTasks}</div><div class="stat-label">Tasks</div></div>
+        <div class="stat-card"><div class="stat-value">${report.totalWork?.toLocaleString() || 0}</div><div class="stat-label">Total Work</div></div>
+        <div class="stat-card"><div class="stat-value">${report.totalFinalProducts?.toLocaleString() || 0}</div><div class="stat-label">Final Products</div></div>
+        <div class="stat-card"><div class="stat-value ${avgEff >= 100 ? 'text-success' : avgEff >= 80 ? '' : 'text-danger'}">${avgEff}%</div><div class="stat-label">Avg Efficiency</div></div>
       </div>
 
       <div class="card">
@@ -279,12 +328,7 @@ async function generateAnalysisPage() {
       <div class="card">
         <div class="card-header">
           <h2 class="card-title">Production Report</h2>
-          <div class="period-tabs">
-            <button class="period-btn ${reportPeriod === 'day' ? 'active' : ''}" onclick="changePeriod('day')">Today</button>
-            <button class="period-btn ${reportPeriod === 'week' ? 'active' : ''}" onclick="changePeriod('week')">Week</button>
-            <button class="period-btn ${reportPeriod === 'month' ? 'active' : ''}" onclick="changePeriod('month')">Month</button>
-            <button class="btn btn-secondary btn-sm" onclick="exportReport()">Export CSV</button>
-          </div>
+          <button class="btn btn-secondary btn-sm" onclick="exportReport()">📥 Export CSV</button>
         </div>
         <div class="report-summary">
           <div class="report-stat highlight"><span class="report-stat-value">${report.totalFinalProducts?.toLocaleString() || 0}</span><span class="report-stat-label">Final Products</span></div>
@@ -315,6 +359,28 @@ async function generateAnalysisPage() {
   } catch (error) { return `<div class="error-message"><p>Error: ${error.message}</p></div>`; }
 }
 
+function setAnalysisPeriod(period) {
+  const now = new Date();
+  let start;
+  if (period === 'week') {
+    start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  } else if (period === 'month') {
+    start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  } else {
+    start = new Date(now);
+  }
+  window._analysisStartDate = start.toISOString().split('T')[0];
+  window._analysisEndDate = new Date().toISOString().split('T')[0];
+  loadPage('productivity/analysis');
+}
+
+function applyAnalysisFilter() {
+  window._analysisStartDate = document.getElementById('analysis-start').value;
+  window._analysisEndDate = document.getElementById('analysis-end').value;
+  window._analysisEmployeeId = document.getElementById('analysis-employee').value;
+  loadPage('productivity/analysis');
+}
+
 function changePeriod(period) {
   reportPeriod = period;
   loadPage('productivity/analysis');
@@ -322,18 +388,60 @@ function changePeriod(period) {
 
 async function exportReport() {
   try {
-    const report = await API.get(`/analytics/daily-report?period=${reportPeriod}`);
-    let csv = 'Date,Employee,Product,Work Type,Target,Actual,Efficiency\n';
-    report.entries.forEach(e => {
+    const startDate = window._analysisStartDate || new Date().toISOString().split('T')[0];
+    const endDate = window._analysisEndDate || new Date().toISOString().split('T')[0];
+    const empId = window._analysisEmployeeId || '';
+
+    let apiUrl = `/analytics/daily-report?start_date=${startDate}&end_date=${endDate}`;
+    if (empId) apiUrl += `&employee_id=${empId}`;
+
+    const report = await API.get(apiUrl);
+    const entries = report.entries || [];
+
+    if (entries.length === 0) { alert('No data to export for the selected filters.'); return; }
+
+    // Build CSV with per-task efficiency on each date
+    let csv = 'Date,Employee,Work Type,Product,Target,Actual,Efficiency\n';
+
+    entries.forEach(e => {
       const eff = e.actual_quantity ? Math.round((e.actual_quantity / e.target_quantity) * 100) : 0;
-      csv += `${formatDate(e.start_time)},${e.employee?.name || ''},${e.product?.name || ''},${e.work_type?.name || ''},${e.target_quantity},${e.actual_quantity || 0},${eff}%\n`;
+      const date = new Date(e.start_time).toISOString().split('T')[0];
+      csv += `${date},${e.employee?.name || ''},${e.work_type?.name || ''},${e.product?.name || ''},${e.target_quantity},${e.actual_quantity || 0},${eff}%\n`;
+    });
+
+    // Add summary rows
+    csv += '\n';
+    csv += `--- SUMMARY (${startDate} to ${endDate}) ---\n`;
+    csv += `Total Tasks,${entries.length}\n`;
+    csv += `Total Work Done,"${report.totalWork?.toLocaleString() || 0}"\n`;
+    csv += `Final Products,"${report.totalFinalProducts?.toLocaleString() || 0}"\n`;
+
+    // Average efficiency across all tasks
+    const completedEntries = entries.filter(e => e.actual_quantity && e.target_quantity);
+    const avgEff = completedEntries.length > 0
+      ? Math.round(completedEntries.reduce((sum, e) => sum + (e.actual_quantity / e.target_quantity) * 100, 0) / completedEntries.length)
+      : 0;
+    csv += `Average Efficiency,${avgEff}%\n`;
+
+    // Per-employee average efficiency
+    const empGroups = {};
+    completedEntries.forEach(e => {
+      const name = e.employee?.name || 'Unknown';
+      if (!empGroups[name]) empGroups[name] = [];
+      empGroups[name].push((e.actual_quantity / e.target_quantity) * 100);
+    });
+    csv += '\n--- EMPLOYEE EFFICIENCY ---\n';
+    csv += 'Employee,Avg Efficiency,Tasks\n';
+    Object.entries(empGroups).forEach(([name, effs]) => {
+      const avg = Math.round(effs.reduce((a, b) => a + b, 0) / effs.length);
+      csv += `${name},${avg}%,${effs.length}\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `production-report-${reportPeriod}-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `production-report-${startDate}-to-${endDate}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   } catch (error) { alert('Export failed: ' + error.message); }
