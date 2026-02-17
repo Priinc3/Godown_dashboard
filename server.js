@@ -257,23 +257,40 @@ app.get('/api/analytics/productivity', async (req, res) => {
 // ===== DAILY REPORTS API =====
 app.get('/api/analytics/daily-report', async (req, res) => {
     try {
-        const { period } = req.query;
+        const { period, startDate: reqStartDate, endDate: reqEndDate, employeeId } = req.query;
         const now = new Date();
-        let startDate;
+        let startDate, endDate;
 
-        if (period === 'week') {
-            startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        } else if (period === 'month') {
-            startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        if (reqStartDate && reqEndDate) {
+            startDate = new Date(reqStartDate);
+            startDate.setHours(0, 0, 0, 0);
+            endDate = new Date(reqEndDate);
+            endDate.setHours(23, 59, 59, 999);
         } else {
-            startDate = new Date(now.setHours(0, 0, 0, 0));
+            // Default period logic
+            endDate = new Date(); // now
+            if (period === 'week') {
+                startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            } else if (period === 'month') {
+                startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+            } else {
+                startDate = new Date(now.setHours(0, 0, 0, 0));
+            }
+        }
+
+        // Build query
+        let query = supabase.from('work_entries')
+            .select(`*, employee:employees(id, name), product:products(id, name), work_type:work_types(id,name)`)
+            .gte('start_time', startDate.toISOString())
+            .lte('start_time', endDate.toISOString())
+            .eq('status', 'complete');
+
+        if (employeeId && employeeId !== 'all') {
+            query = query.eq('employee_id', employeeId);
         }
 
         const [entriesRes, employeesRes, productsRes, workTypesRes] = await Promise.all([
-            supabase.from('work_entries')
-                .select(`*, employee:employees(id, name), product:products(id, name), work_type:work_types(id,name)`)
-                .gte('start_time', startDate.toISOString())
-                .eq('status', 'complete'),
+            query,
             supabase.from('employees').select('*').eq('active', true),
             supabase.from('products').select('*'),
             supabase.from('work_types').select('*')
@@ -324,8 +341,10 @@ app.get('/api/analytics/daily-report', async (req, res) => {
         const employeeBreakdown = employees.map(emp => {
             const empEntries = entries.filter(e => e.employee_id === emp.id);
             const total = empEntries.reduce((s, e) => s + (e.actual_quantity || 0), 0);
-            return { id: emp.id, name: emp.name, totalWork: total, tasks: empEntries.length };
-        }).filter(e => e.tasks > 0).sort((a, b) => b.totalWork - a.totalWork);
+            const tasks = empEntries.length;
+            const avgEfficiency = tasks > 0 ? Math.round(empEntries.reduce((s, e) => s + ((e.actual_quantity / e.target_quantity) * 100), 0) / tasks) : 0;
+            return { id: emp.id, name: emp.name, totalWork: total, tasks, avgEfficiency };
+        }).filter(e => e.tasks > 0).sort((a, b) => b.avgEfficiency - a.avgEfficiency); // Sorted by efficiency
 
         // Work type breakdown
         const workTypeBreakdown = workTypes.map(wt => {
@@ -355,12 +374,19 @@ app.get('/api/analytics/daily-report', async (req, res) => {
 
         const totalWork = entries.reduce((s, e) => s + (e.actual_quantity || 0), 0);
 
+        // Calculate filtered average efficiency
+        const avgEfficiency = entries.length > 0
+            ? Math.round(entries.reduce((s, e) => s + ((e.actual_quantity / e.target_quantity) * 100), 0) / entries.length)
+            : 0;
+
         res.json({
             period,
             startDate: startDate.toISOString(),
+            endDate: endDate.toISOString(),
             totalWork,
             totalFinalProducts,
             totalTasks: entries.length,
+            avgEfficiency, // Added field
             dailyData: Object.entries(dailyData).map(([date, data]) => ({
                 date,
                 totalWork: data.totalWork,

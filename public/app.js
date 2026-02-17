@@ -30,6 +30,7 @@ const showError = msg => document.getElementById('main-content').innerHTML = `<d
 
 let currentEditEntry = null;
 let reportPeriod = 'day';
+let analysisFilters = { startDate: '', endDate: '', employeeId: 'all' };
 
 // ===== TRACKING PAGE =====
 let multiTaskCounter = 0;
@@ -222,16 +223,32 @@ function filterSearchSelect(input, selectId) {
 // ===== ANALYSIS PAGE =====
 async function generateAnalysisPage() {
   try {
-    const [analytics, report] = await Promise.all([
-      API.get('/analytics/productivity'),
-      API.get(`/analytics/daily-report?period=${reportPeriod}`)
+    // Build query params
+    const params = new URLSearchParams();
+    if (analysisFilters.startDate) params.set('startDate', analysisFilters.startDate);
+    if (analysisFilters.endDate) params.set('endDate', analysisFilters.endDate);
+    if (analysisFilters.employeeId && analysisFilters.employeeId !== 'all') params.set('employeeId', analysisFilters.employeeId);
+    if (!analysisFilters.startDate && !analysisFilters.endDate) params.set('period', reportPeriod);
+
+    const [report, employees] = await Promise.all([
+      API.get(`/analytics/daily-report?${params.toString()}`),
+      getCached('employees', '/employees/active')
     ]);
 
-    const empRows = analytics.employeeStats.map(e => `
+    // Use returned start/end date for UI if not set manually
+    if (!analysisFilters.startDate && report.startDate) analysisFilters.startDate = report.startDate.split('T')[0];
+    if (!analysisFilters.endDate && report.endDate) analysisFilters.endDate = report.endDate.split('T')[0];
+
+    // Employee options
+    const empOpts = ['<option value="all">All Employees</option>', ...employees.map(e =>
+      `<option value="${e.id}" ${analysisFilters.employeeId == e.id ? 'selected' : ''}>${e.name}</option>`
+    )].join('');
+
+    const empRows = report.employeeBreakdown.map(e => `
       <div class="perf-row">
         <span class="perf-name">${e.name}</span>
-        <span class="perf-stat">${e.totalTasks}</span>
-        <span class="perf-stat">${e.totalProduced.toLocaleString()}</span>
+        <span class="perf-stat">${e.tasks}</span>
+        <span class="perf-stat">${e.totalWork.toLocaleString()}</span>
         <span class="perf-stat ${e.avgEfficiency >= 100 ? 'text-success' : e.avgEfficiency >= 80 ? '' : 'text-danger'}">${e.avgEfficiency}%</span>
       </div>`).join('');
 
@@ -240,12 +257,6 @@ async function generateAnalysisPage() {
         <span class="daily-date">${formatDate(d.date)}</span>
         <span class="daily-value">${d.finalProducts?.toLocaleString() || 0} products</span>
         <span class="daily-tasks">${d.tasks} tasks</span>
-      </div>`).join('');
-
-    const empWorkRows = report.employeeBreakdown.map(e => `
-      <div class="breakdown-row">
-        <span>${e.name}</span>
-        <span>${e.totalWork?.toLocaleString() || 0} done</span>
       </div>`).join('');
 
     const workTypeRows = (report.workTypeBreakdown || []).map(w => `
@@ -263,11 +274,34 @@ async function generateAnalysisPage() {
     return `
       <div class="page-header"><h1 class="page-title">Analysis</h1></div>
       
+      <!-- Filters -->
+      <div class="card filter-card">
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label class="filter-label">From</label>
+            <input type="date" class="form-input filter-input" id="analysis-start" value="${analysisFilters.startDate}" onchange="updateAnalysisFilter('startDate', this.value)">
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">To</label>
+            <input type="date" class="form-input filter-input" id="analysis-end" value="${analysisFilters.endDate}" onchange="updateAnalysisFilter('endDate', this.value)">
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">Employee</label>
+            <select class="form-select filter-input" id="analysis-employee" onchange="updateAnalysisFilter('employeeId', this.value)">${empOpts}</select>
+          </div>
+          <div class="period-tabs" style="margin-left: auto;">
+             <button class="period-btn ${reportPeriod === 'day' ? 'active' : ''}" onclick="changePeriod('day')">Today</button>
+             <button class="period-btn ${reportPeriod === 'week' ? 'active' : ''}" onclick="changePeriod('week')">Week</button>
+             <button class="period-btn ${reportPeriod === 'month' ? 'active' : ''}" onclick="changePeriod('month')">Month</button>
+          </div>
+        </div>
+      </div>
+
       <div class="stats-grid">
-        <div class="stat-card"><div class="stat-value">${analytics.totalEmployees}</div><div class="stat-label">Employees</div></div>
-        <div class="stat-card"><div class="stat-value">${analytics.thisWeekCompleted}</div><div class="stat-label">This Week</div></div>
-        <div class="stat-card"><div class="stat-value">${analytics.avgEfficiency}%</div><div class="stat-label">Avg Efficiency</div></div>
-        <div class="stat-card"><div class="stat-value">${analytics.totalUnits.toLocaleString()}</div><div class="stat-label">Total Work Done</div></div>
+        <div class="stat-card"><div class="stat-value">${employees.length}</div><div class="stat-label">Total Employees</div></div>
+        <div class="stat-card"><div class="stat-value">${report.totalTasks}</div><div class="stat-label">Tasks in Period</div></div>
+        <div class="stat-card"><div class="stat-value">${report.avgEfficiency}%</div><div class="stat-label">Avg Efficiency</div></div>
+        <div class="stat-card"><div class="stat-value">${report.totalWork.toLocaleString()}</div><div class="stat-label">Total Work Done</div></div>
       </div>
 
       <div class="card">
@@ -279,12 +313,7 @@ async function generateAnalysisPage() {
       <div class="card">
         <div class="card-header">
           <h2 class="card-title">Production Report</h2>
-          <div class="period-tabs">
-            <button class="period-btn ${reportPeriod === 'day' ? 'active' : ''}" onclick="changePeriod('day')">Today</button>
-            <button class="period-btn ${reportPeriod === 'week' ? 'active' : ''}" onclick="changePeriod('week')">Week</button>
-            <button class="period-btn ${reportPeriod === 'month' ? 'active' : ''}" onclick="changePeriod('month')">Month</button>
-            <button class="btn btn-secondary btn-sm" onclick="exportReport()">Export CSV</button>
-          </div>
+          <button class="btn btn-secondary btn-sm" onclick="exportReport()">Export CSV</button>
         </div>
         <div class="report-summary">
           <div class="report-stat highlight"><span class="report-stat-value">${report.totalFinalProducts?.toLocaleString() || 0}</span><span class="report-stat-label">Final Products</span></div>
@@ -306,24 +335,43 @@ async function generateAnalysisPage() {
           <h4>By Work Type</h4>
           <div class="breakdown-list">${workTypeRows || '<p class="text-muted">No data.</p>'}</div>
         </div>
-        
-        <div class="report-section">
-          <h4>By Employee</h4>
-          <div class="breakdown-list">${empWorkRows || '<p class="text-muted">No data.</p>'}</div>
-        </div>
       </div>`;
   } catch (error) { return `<div class="error-message"><p>Error: ${error.message}</p></div>`; }
 }
 
+function updateAnalysisFilter(key, value) {
+  analysisFilters[key] = value;
+  // If user manually picks a date, we clear the "period" shortcut logic for next time, or just reload
+  if (key === 'startDate' || key === 'endDate') reportPeriod = 'custom';
+  loadPage('productivity/analysis');
+}
+
 function changePeriod(period) {
   reportPeriod = period;
+  // Reset custom dates to let backend calculate defaults for the period, or calculate them here.
+  // Using backend defaults by clearing local dates:
+  analysisFilters.startDate = '';
+  analysisFilters.endDate = '';
   loadPage('productivity/analysis');
 }
 
 async function exportReport() {
   try {
-    const report = await API.get(`/analytics/daily-report?period=${reportPeriod}`);
-    let csv = 'Date,Employee,Product,Work Type,Target,Actual,Efficiency\n';
+    const params = new URLSearchParams();
+    if (analysisFilters.startDate) params.set('startDate', analysisFilters.startDate);
+    if (analysisFilters.endDate) params.set('endDate', analysisFilters.endDate);
+    if (analysisFilters.employeeId && analysisFilters.employeeId !== 'all') params.set('employeeId', analysisFilters.employeeId);
+    if (!analysisFilters.startDate && !analysisFilters.endDate) params.set('period', reportPeriod);
+
+    const report = await API.get(`/analytics/daily-report?${params.toString()}`);
+
+    // Summary Row
+    let csv = `Average Efficiency,${report.avgEfficiency}%\n\n`; // Summary + Empty Row
+
+    // Header
+    csv += 'Date,Employee,Product,Work Type,Target,Actual,Efficiency\n';
+
+    // Data Rows
     report.entries.forEach(e => {
       const eff = e.actual_quantity ? Math.round((e.actual_quantity / e.target_quantity) * 100) : 0;
       csv += `${formatDate(e.start_time)},${e.employee?.name || ''},${e.product?.name || ''},${e.work_type?.name || ''},${e.target_quantity},${e.actual_quantity || 0},${eff}%\n`;
@@ -333,7 +381,7 @@ async function exportReport() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `production-report-${reportPeriod}-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `production-report-${report.startDate.split('T')[0]}-to-${report.endDate.split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   } catch (error) { alert('Export failed: ' + error.message); }
