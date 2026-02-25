@@ -20,9 +20,10 @@ const supabase = createClient(
 app.use(cors());
 app.use(express.json());
 
-// Serve static compiled UI in production (Optional fallback)
+// Serve static compiled UI in production (Optional fallback for local or vercel output)
 if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.join(__dirname, 'frontend', 'dist')));
+    const distPath = path.join(process.cwd(), 'frontend', 'dist');
+    app.use(express.static(distPath));
 }
 
 // ===== PUBLIC CONFIG API =====
@@ -953,13 +954,15 @@ app.post('/api/invoices/upload', upload.single('invoice'), async (req, res) => {
     }
 });
 
-// Catch-all route to handle React Router and email confirmation links
+// Catch-all route to serve the React app in production, or redirect to Vite in dev
 app.get('/{*splat}', (req, res) => {
     if (process.env.NODE_ENV === 'production') {
-        res.sendFile(path.join(__dirname, 'frontend', 'dist', 'index.html'));
+        res.sendFile(path.join(process.cwd(), 'frontend', 'dist', 'index.html'), (err) => {
+            if (err) res.status(500).send("Welcome to the API. Frontend not found.");
+        });
     } else {
-        res.redirect(`http://localhost:5173${req.url}`);
+        res.redirect(`http://localhost:5173${req.path}`);
     }
 });
 
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
