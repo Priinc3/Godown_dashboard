@@ -19,11 +19,6 @@ const supabase = createClient(
 app.use(cors());
 app.use(express.json());
 
-// Serve static compiled UI in production (Optional fallback for local or vercel output)
-if (process.env.NODE_ENV === 'production') {
-    const distPath = path.join(process.cwd(), 'frontend', 'dist');
-    app.use(express.static(distPath));
-}
 
 // ===== PUBLIC CONFIG API =====
 app.get('/api/config/supabase', (req, res) => {
@@ -953,19 +948,9 @@ app.post('/api/invoices/upload', upload.single('invoice'), async (req, res) => {
     }
 });
 
-// Catch-all route to serve the React app in production, or redirect to Vite in dev
-app.get('*', (req, res) => {
-    if (process.env.NODE_ENV === 'production') {
-        res.sendFile(path.join(__dirname, '..', 'frontend', 'dist', 'index.html'), (err) => {
-            if (err) res.status(200).json({ status: 'API is running' });
-        });
-    } else {
-        res.redirect(`http://localhost:5173${req.path}`);
-    }
-});
-
 if (process.env.NODE_ENV !== 'production') {
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
 
 module.exports = app;
+
