@@ -1,10 +1,9 @@
 // Joyspoon Dashboard - Express Server with Supabase
-require('dotenv').config();
+try { require('dotenv').config(); } catch (e) { /* no .env file on Vercel */ }
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
-const fs = require('fs');
 const multer = require('multer');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const upload = multer({ storage: multer.memoryStorage() });
@@ -955,10 +954,10 @@ app.post('/api/invoices/upload', upload.single('invoice'), async (req, res) => {
 });
 
 // Catch-all route to serve the React app in production, or redirect to Vite in dev
-app.get('/{*splat}', (req, res) => {
+app.get('*', (req, res) => {
     if (process.env.NODE_ENV === 'production') {
-        res.sendFile(path.join(process.cwd(), 'frontend', 'dist', 'index.html'), (err) => {
-            if (err) res.status(500).send("Welcome to the API. Frontend not found.");
+        res.sendFile(path.join(__dirname, '..', 'frontend', 'dist', 'index.html'), (err) => {
+            if (err) res.status(200).json({ status: 'API is running' });
         });
     } else {
         res.redirect(`http://localhost:5173${req.path}`);
