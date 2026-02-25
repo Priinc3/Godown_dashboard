@@ -1,10 +1,13 @@
-// Godown Dashboard - Express Server with Supabase
+// Joyspoon Dashboard - Express Server with Supabase
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
+const multer = require('multer');
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const upload = multer({ storage: multer.memoryStorage() });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,7 +19,19 @@ const supabase = createClient(
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Serve static compiled UI in production (Optional fallback)
+if (process.env.NODE_ENV === 'production') {
+    app.use(express.static(path.join(__dirname, 'frontend', 'dist')));
+}
+
+// ===== PUBLIC CONFIG API =====
+app.get('/api/config/supabase', (req, res) => {
+    res.json({
+        url: process.env.SUPABASE_URL,
+        anonKey: process.env.SUPABASE_ANON_KEY
+    });
+});
 
 // ===== EMPLOYEES API =====
 app.get('/api/employees', async (req, res) => {
@@ -867,9 +882,84 @@ app.get('/api/sales-analysis', async (req, res) => {
     }
 });
 
-// Catch-all route
+// ===== INVOICES API =====
+app.post('/api/invoices/upload', upload.single('invoice'), async (req, res) => {
+    try {
+        const file = req.file;
+        const userId = req.body.userId;
+        if (!file) throw new Error("No invoice file uploaded");
+
+        // 1. Fetch AWS and n8n config from settings table
+        const { data: settingsData, error: settingsError } = await supabase.from('settings').select('*');
+        if (settingsError) throw settingsError;
+
+        const config = {};
+        settingsData.forEach(item => { config[item.key] = item.value; });
+
+        const { aws_key, aws_secret, aws_region, aws_bucket, n8n_webhook } = config;
+
+        if (!aws_key || !aws_secret || !aws_region || !aws_bucket) {
+            throw new Error("AWS configuration is incomplete. Please check settings.");
+        }
+
+        // 2. Upload to S3
+        const s3Client = new S3Client({
+            region: aws_region,
+            credentials: { accessKeyId: aws_key, secretAccessKey: aws_secret }
+        });
+
+        const fileExtension = path.extname(file.originalname);
+        const fileName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${fileExtension}`;
+        const s3Key = `invoices/${fileName}`;
+
+        await s3Client.send(new PutObjectCommand({
+            Bucket: aws_bucket,
+            Key: s3Key,
+            Body: file.buffer,
+            ContentType: file.mimetype
+        }));
+
+        const fileUrl = `https://${aws_bucket}.s3.${aws_region}.amazonaws.com/${s3Key}`;
+
+        // 3. Save to Supabase DB
+        const { data: invData, error: invError } = await supabase.from('invoices').insert([{
+            user_id: userId || null,
+            file_name: file.originalname,
+            file_url: fileUrl,
+            status: 'Pending'
+        }]).select().single();
+
+        if (invError) throw invError;
+
+        // 4. Trigger n8n Webhook asynchronously
+        if (n8n_webhook) {
+            fetch(n8n_webhook, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    invoice_id: invData.id,
+                    file_url: fileUrl,
+                    file_name: file.originalname,
+                    user_id: userId,
+                    timestamp: new Date().toISOString()
+                })
+            }).catch(e => console.error("Error triggering n8n webhook:", e));
+        }
+
+        res.json({ success: true, invoice: invData });
+    } catch (error) {
+        console.error("Invoice upload error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Catch-all route to handle React Router and email confirmation links
 app.get('/{*splat}', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    if (process.env.NODE_ENV === 'production') {
+        res.sendFile(path.join(__dirname, 'frontend', 'dist', 'index.html'));
+    } else {
+        res.redirect(`http://localhost:5173${req.url}`);
+    }
 });
 
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
