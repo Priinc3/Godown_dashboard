@@ -1019,15 +1019,15 @@ app.post('/api/finance/login', async (req, res) => {
         const valid = await bcrypt.compare(password, user.password_hash);
         if (!valid) throw new Error('Invalid credentials');
 
-        // Create a simple base64 token valid for 24 hours
         const token = Buffer.from(JSON.stringify({
             id: user.id,
             username: user.username,
             is_admin: user.is_admin,
+            can_approve: user.can_approve || user.is_admin,
             exp: Date.now() + 24 * 60 * 60 * 1000
         })).toString('base64');
 
-        res.json({ success: true, token, user: { id: user.id, username: user.username, is_admin: user.is_admin } });
+        res.json({ success: true, token, user: { id: user.id, username: user.username, is_admin: user.is_admin, can_approve: user.can_approve || user.is_admin } });
     } catch (error) { res.status(401).json({ error: error.message }); }
 });
 
@@ -1039,7 +1039,7 @@ app.get('/api/finance/users', async (req, res) => {
 
         const { data, error } = await supabase
             .from('finance_users')
-            .select('id, username, is_admin, created_at')
+            .select('id, username, is_admin, can_approve, created_at')
             .order('created_at');
         if (error) throw error;
         res.json(data || []);
@@ -1058,8 +1058,27 @@ app.post('/api/finance/users', async (req, res) => {
         const password_hash = await bcrypt.hash(password, 10);
         const { data, error } = await supabase
             .from('finance_users')
-            .insert([{ username: username.toLowerCase(), password_hash, is_admin: false }])
-            .select('id, username, is_admin, created_at')
+            .insert([{ username: username.toLowerCase(), password_hash, is_admin: false, can_approve: false }])
+            .select('id, username, is_admin, can_approve, created_at')
+            .single();
+
+        if (error) throw error;
+        res.json(data);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// Toggle user approver status (admin only)
+app.patch('/api/finance/users/:id/approver', async (req, res) => {
+    try {
+        const auth = verifyFinanceToken(req);
+        if (!auth || !auth.is_admin) return res.status(403).json({ error: 'Admin access required' });
+
+        const { can_approve } = req.body;
+        const { data, error } = await supabase
+            .from('finance_users')
+            .update({ can_approve: !!can_approve })
+            .eq('id', req.params.id)
+            .select('id, username, is_admin, can_approve')
             .single();
 
         if (error) throw error;
@@ -1073,7 +1092,6 @@ app.delete('/api/finance/users/:id', async (req, res) => {
         const auth = verifyFinanceToken(req);
         if (!auth || !auth.is_admin) return res.status(403).json({ error: 'Admin access required' });
 
-        // Prevent deleting admin users
         const { data: target } = await supabase.from('finance_users').select('is_admin').eq('id', req.params.id).single();
         if (target?.is_admin) return res.status(403).json({ error: 'Cannot delete admin users' });
 
@@ -1082,11 +1100,12 @@ app.delete('/api/finance/users/:id', async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// Approve invoice (requires finance auth)
+// Approve invoice (admin or approver only)
 app.put('/api/invoices/:id/approve', async (req, res) => {
     try {
         const auth = verifyFinanceToken(req);
         if (!auth) return res.status(401).json({ error: 'Finance login required' });
+        if (!auth.is_admin && !auth.can_approve) return res.status(403).json({ error: 'Approval permission required' });
 
         const { data, error } = await supabase.from('invoices')
             .update({ status: 'Approved', approved_by: auth.username, approved_at: new Date().toISOString() })
@@ -1097,7 +1116,7 @@ app.put('/api/invoices/:id/approve', async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// Mark invoice as paid (requires finance auth)
+// Mark invoice as paid
 app.put('/api/invoices/:id/paid', async (req, res) => {
     try {
         const auth = verifyFinanceToken(req);
@@ -1113,8 +1132,20 @@ app.put('/api/invoices/:id/paid', async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+// Delete invoice (admin only)
+app.delete('/api/invoices/:id', async (req, res) => {
+    try {
+        const auth = verifyFinanceToken(req);
+        if (!auth || !auth.is_admin) return res.status(403).json({ error: 'Admin access required' });
+
+        await supabase.from('invoices').delete().eq('id', req.params.id);
+        res.json({ success: true });
+    } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
 if (process.env.NODE_ENV !== 'production') {
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
 
 module.exports = app;
+
