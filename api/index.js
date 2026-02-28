@@ -5,6 +5,7 @@ const cors = require('cors');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const multer = require('multer');
+const bcrypt = require('bcryptjs');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -988,10 +989,132 @@ app.put('/api/invoices/:id', async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+// ===== FINANCE AUTH API =====
+
+// Helper: verify finance token
+function verifyFinanceToken(req) {
+    const token = req.headers['x-finance-token'];
+    if (!token) return null;
+    try {
+        const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+        if (decoded.exp && decoded.exp > Date.now()) return decoded;
+        return null;
+    } catch (e) { return null; }
+}
+
+// Finance login
+app.post('/api/finance/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        if (!username || !password) throw new Error('Username and password required');
+
+        const { data: user, error } = await supabase
+            .from('finance_users')
+            .select('*')
+            .eq('username', username.toLowerCase())
+            .single();
+
+        if (error || !user) throw new Error('Invalid credentials');
+
+        const valid = await bcrypt.compare(password, user.password_hash);
+        if (!valid) throw new Error('Invalid credentials');
+
+        // Create a simple base64 token valid for 24 hours
+        const token = Buffer.from(JSON.stringify({
+            id: user.id,
+            username: user.username,
+            is_admin: user.is_admin,
+            exp: Date.now() + 24 * 60 * 60 * 1000
+        })).toString('base64');
+
+        res.json({ success: true, token, user: { id: user.id, username: user.username, is_admin: user.is_admin } });
+    } catch (error) { res.status(401).json({ error: error.message }); }
+});
+
+// List finance users (admin only)
+app.get('/api/finance/users', async (req, res) => {
+    try {
+        const auth = verifyFinanceToken(req);
+        if (!auth || !auth.is_admin) return res.status(403).json({ error: 'Admin access required' });
+
+        const { data, error } = await supabase
+            .from('finance_users')
+            .select('id, username, is_admin, created_at')
+            .order('created_at');
+        if (error) throw error;
+        res.json(data || []);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// Add finance user (admin only)
+app.post('/api/finance/users', async (req, res) => {
+    try {
+        const auth = verifyFinanceToken(req);
+        if (!auth || !auth.is_admin) return res.status(403).json({ error: 'Admin access required' });
+
+        const { username, password } = req.body;
+        if (!username || !password) throw new Error('Username and password required');
+
+        const password_hash = await bcrypt.hash(password, 10);
+        const { data, error } = await supabase
+            .from('finance_users')
+            .insert([{ username: username.toLowerCase(), password_hash, is_admin: false }])
+            .select('id, username, is_admin, created_at')
+            .single();
+
+        if (error) throw error;
+        res.json(data);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// Delete finance user (admin only, cannot delete admins)
+app.delete('/api/finance/users/:id', async (req, res) => {
+    try {
+        const auth = verifyFinanceToken(req);
+        if (!auth || !auth.is_admin) return res.status(403).json({ error: 'Admin access required' });
+
+        // Prevent deleting admin users
+        const { data: target } = await supabase.from('finance_users').select('is_admin').eq('id', req.params.id).single();
+        if (target?.is_admin) return res.status(403).json({ error: 'Cannot delete admin users' });
+
+        await supabase.from('finance_users').delete().eq('id', req.params.id);
+        res.json({ success: true });
+    } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// Approve invoice (requires finance auth)
+app.put('/api/invoices/:id/approve', async (req, res) => {
+    try {
+        const auth = verifyFinanceToken(req);
+        if (!auth) return res.status(401).json({ error: 'Finance login required' });
+
+        const { data, error } = await supabase.from('invoices')
+            .update({ status: 'Approved', approved_by: auth.username, approved_at: new Date().toISOString() })
+            .eq('id', req.params.id)
+            .select().single();
+        if (error) throw error;
+        res.json(data);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// Mark invoice as paid (requires finance auth)
+app.put('/api/invoices/:id/paid', async (req, res) => {
+    try {
+        const auth = verifyFinanceToken(req);
+        if (!auth) return res.status(401).json({ error: 'Finance login required' });
+
+        const { paid_by } = req.body;
+        const { data, error } = await supabase.from('invoices')
+            .update({ status: 'Paid', paid_by: paid_by || auth.username, paid_at: new Date().toISOString() })
+            .eq('id', req.params.id)
+            .select().single();
+        if (error) throw error;
+        res.json(data);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
 if (process.env.NODE_ENV !== 'production') {
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
 
 module.exports = app;
-
-

@@ -1,9 +1,11 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { CacheProvider } from './contexts/CacheContext';
+import { FinanceAuthProvider } from './contexts/FinanceAuthContext';
 
 // Layouts
 import AppLayout from './components/layout/AppLayout';
+import FinanceGate from './components/finance/FinanceGate';
 
 // Pages
 import Tracking from './pages/Productivity/Tracking';
@@ -21,32 +23,34 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <CacheProvider>
-          <Routes>
-            <Route path="/" element={<AppLayout />}>
-              <Route index element={<Navigate to="/productivity/tracking" replace />} />
-              <Route path="productivity">
-                <Route path="tracking" element={<Tracking />} />
-                <Route path="analysis" element={<ProdAnalysis />} />
-                <Route path="settings" element={<ProdSettings />} />
-              </Route>
+          <FinanceAuthProvider>
+            <Routes>
+              <Route path="/" element={<AppLayout />}>
+                <Route index element={<Navigate to="/productivity/tracking" replace />} />
+                <Route path="productivity">
+                  <Route path="tracking" element={<Tracking />} />
+                  <Route path="analysis" element={<ProdAnalysis />} />
+                  <Route path="settings" element={<ProdSettings />} />
+                </Route>
 
-              <Route path="expenses">
-                <Route path="transactions" element={<ExpTransactions />} />
-                <Route path="settings" element={<ExpSettings />} />
-              </Route>
+                <Route path="expenses">
+                  <Route path="transactions" element={<ExpTransactions />} />
+                  <Route path="settings" element={<ExpSettings />} />
+                </Route>
 
-              <Route path="finance">
-                <Route path="invoices" element={<Invoices />} />
-              </Route>
+                <Route path="finance">
+                  <Route path="invoices" element={<FinanceGate><Invoices /></FinanceGate>} />
+                </Route>
 
-              <Route path="sales">
-                <Route path="data-sources" element={<SalesDataSources />} />
-                <Route path="analysis" element={<SalesAnalysis />} />
-              </Route>
+                <Route path="sales">
+                  <Route path="data-sources" element={<SalesDataSources />} />
+                  <Route path="analysis" element={<SalesAnalysis />} />
+                </Route>
 
-              <Route path="settings" element={<GeneralSettings />} />
-            </Route>
-          </Routes>
+                <Route path="settings" element={<GeneralSettings />} />
+              </Route>
+            </Routes>
+          </FinanceAuthProvider>
         </CacheProvider>
       </AuthProvider>
     </BrowserRouter>
