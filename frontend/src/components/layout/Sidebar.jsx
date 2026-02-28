@@ -4,12 +4,8 @@ import {
     BarChart2,
     Settings,
     Receipt,
-    PieChart,
-    ListTodo,
     TrendingUp,
-    Database,
     CreditCard,
-    LogOut,
     X,
     ChevronRight,
     ChevronDown
@@ -24,7 +20,7 @@ export function cn(...inputs) {
 }
 
 export default function Sidebar() {
-    const { isSidebarOpen, toggleSidebar, logout } = useAuth();
+    const { isSidebarOpen, toggleSidebar } = useAuth();
 
     // State for open folders
     const [openFolders, setOpenFolders] = useState({
@@ -167,14 +163,6 @@ export default function Sidebar() {
                 <div className="p-3 border-t border-gray-100 shrink-0">
                     <SingleItem to="/settings" icon={Settings}>
                         General Settings
-                    </SingleItem>
-                    <SingleItem
-                        to="#"
-                        icon={LogOut}
-                        className="text-red-600 hover:bg-red-50 hover:text-red-700 mt-2"
-                        onClick={logout}
-                    >
-                        Logout
                     </SingleItem>
                 </div>
 
