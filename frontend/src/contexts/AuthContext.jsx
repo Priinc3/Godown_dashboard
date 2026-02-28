@@ -8,11 +8,15 @@ export function AuthProvider({ children }) {
     const toggleSidebar = () => setIsSidebarOpen(prev => !prev);
     const closeSidebar = () => setIsSidebarOpen(false);
 
+    // Stub — auth removed, but pages still call getAuthHeaders()
+    const getAuthHeaders = () => ({});
+
     return (
         <AuthContext.Provider value={{
             isSidebarOpen,
             toggleSidebar,
             closeSidebar,
+            getAuthHeaders,
         }}>
             {children}
         </AuthContext.Provider>

@@ -1,21 +1,16 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../../contexts/AuthContext';
 import { useCache } from '../../contexts/CacheContext';
-import { UploadCloud, FileText, CheckCircle2, PlayCircle, Loader2 } from 'lucide-react';
+import { UploadCloud, FileText, Loader2 } from 'lucide-react';
 
 export default function Invoices() {
     const [invoices, setInvoices] = useState([]);
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [uploadStatus, setUploadStatus] = useState('');
-
-    const { supabase, currentUser, userRole, getAuthHeaders } = useAuth();
-    const { cache, getCached } = useCache();
-
+    const { getCached } = useCache();
     const [isConfigured, setIsConfigured] = useState(false);
 
     useEffect(() => {
-        // Only admins usually fetch settings freely. Let's rely on cached settings or soft-fail
         getCached('settings', '/settings').then(settings => {
             const configured = settings?.aws_key && settings?.aws_secret && settings?.aws_bucket && settings?.n8n_webhook;
             setIsConfigured(!!configured);
@@ -27,12 +22,9 @@ export default function Invoices() {
     const loadInvoices = async () => {
         setLoading(true);
         try {
-            const { data, error } = await supabase
-                .from('invoices')
-                .select('*, profiles:user_id(role)')
-                .order('created_at', { ascending: false });
-
-            if (error) throw error;
+            const res = await fetch('/api/invoices');
+            if (!res.ok) throw new Error(res.statusText);
+            const data = await res.json();
             setInvoices(data || []);
         } catch (e) {
             console.error(e);
@@ -52,11 +44,9 @@ export default function Invoices() {
         try {
             const formData = new FormData();
             formData.append('invoice', fileInput.files[0]);
-            formData.append('userId', currentUser?.id);
 
             const r = await fetch('/api/invoices/upload', {
                 method: 'POST',
-                headers: getAuthHeaders(),
                 body: formData
             });
 
@@ -76,45 +66,11 @@ export default function Invoices() {
         }
     };
 
-    const approveInvoice = async (id) => {
-        if (!confirm('Approve this invoice?')) return;
-        try {
-            const { error } = await supabase
-                .from('invoices')
-                .update({ status: 'Approved', approved_by: currentUser.id })
-                .eq('id', id);
-            if (error) throw error;
-            loadInvoices();
-        } catch (e) { alert(e.message); }
-    };
-
-    const payInvoice = async (id) => {
-        if (!confirm('Mark as Paid?')) return;
-        try {
-            const { error } = await supabase
-                .from('invoices')
-                .update({ status: 'Paid', paid_by: currentUser.id })
-                .eq('id', id);
-            if (error) throw error;
-            loadInvoices();
-        } catch (e) { alert(e.message); }
-    };
-
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <h1 className="text-2xl font-bold text-text-main">Finance & Invoices</h1>
             </div>
-
-            {!isConfigured && userRole === 'admin' && (
-                <div className="bg-amber-50 text-amber-800 p-4 rounded-xl shadow-sm border border-amber-100 flex items-start gap-3">
-                    <div className="text-xl">⚠️</div>
-                    <div>
-                        <p className="font-semibold text-sm">Action Required</p>
-                        <p className="text-xs mt-1">Please configure AWS S3 details and your n8n webhook URL in General Settings to enable invoice processing.</p>
-                    </div>
-                </div>
-            )}
 
             {/* Upload Card */}
             <div className="bg-surface rounded-xl shadow-sm border border-gray-100 overflow-hidden">
@@ -163,19 +119,17 @@ export default function Invoices() {
                                 <th className="px-6 py-4 font-medium">Date</th>
                                 <th className="px-6 py-4 font-medium">File Name</th>
                                 <th className="px-6 py-4 font-medium">Status</th>
-                                <th className="px-6 py-4 font-medium">Uploaded By</th>
                                 <th className="px-6 py-4 font-medium text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {loading ? (
-                                <tr><td colSpan="5" className="px-6 py-8 text-center text-text-muted">Loading invoices...</td></tr>
+                                <tr><td colSpan="4" className="px-6 py-8 text-center text-text-muted">Loading invoices...</td></tr>
                             ) : invoices.length === 0 ? (
-                                <tr><td colSpan="5" className="px-6 py-8 text-center text-text-muted">No invoices uploaded yet.</td></tr>
+                                <tr><td colSpan="4" className="px-6 py-8 text-center text-text-muted">No invoices uploaded yet.</td></tr>
                             ) : (
                                 invoices.map(inv => {
                                     const dateStr = new Date(inv.created_at).toLocaleDateString();
-                                    const roleStr = inv.profiles?.role || 'user';
 
                                     let statusColor = 'bg-gray-100 text-gray-800';
                                     if (inv.status === 'Approved') statusColor = 'bg-green-100 text-green-800';
@@ -193,8 +147,7 @@ export default function Invoices() {
                                                     {inv.status}
                                                 </span>
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-text-muted capitalize">{roleStr}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-right space-x-2">
+                                            <td className="px-6 py-4 whitespace-nowrap text-right">
                                                 <a
                                                     href={inv.file_url}
                                                     target="_blank"
@@ -203,24 +156,6 @@ export default function Invoices() {
                                                 >
                                                     View
                                                 </a>
-
-                                                {userRole === 'admin' && inv.status === 'Pending' && (
-                                                    <button
-                                                        onClick={() => approveInvoice(inv.id)}
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-500 text-white rounded-md text-sm font-medium hover:bg-green-600 transition-colors shadow-sm"
-                                                    >
-                                                        <CheckCircle2 className="w-4 h-4" /> Approve
-                                                    </button>
-                                                )}
-
-                                                {userRole === 'admin' && inv.status === 'Approved' && (
-                                                    <button
-                                                        onClick={() => payInvoice(inv.id)}
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-md text-sm font-medium hover:bg-primary-dark transition-colors shadow-sm"
-                                                    >
-                                                        <PlayCircle className="w-4 h-4" /> Mark Paid
-                                                    </button>
-                                                )}
                                             </td>
                                         </tr>
                                     )
