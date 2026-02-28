@@ -96,6 +96,15 @@ export default function Invoices() {
         } catch (err) { alert(err.message); }
     };
 
+    const handleDownload = async (id) => {
+        try {
+            const r = await fetch(`/api/invoices/${id}/download`);
+            if (!r.ok) throw new Error((await r.json()).error);
+            const { url } = await r.json();
+            window.open(url, '_blank');
+        } catch (err) { alert(`Download failed: ${err.message}`); }
+    };
+
     // User management
     const loadUsers = async () => {
         try {
@@ -332,10 +341,10 @@ export default function Invoices() {
                                                         )}
 
                                                         {/* Download */}
-                                                        <a href={inv.file_url} download={inv.file_name} target="_blank" rel="noopener noreferrer"
+                                                        <button onClick={() => handleDownload(inv.id)}
                                                             className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
                                                             <Download className="w-3 h-3" />
-                                                        </a>
+                                                        </button>
 
                                                         {/* Delete - admin only */}
                                                         {financeUser?.is_admin && (

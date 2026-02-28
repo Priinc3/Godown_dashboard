@@ -6,7 +6,8 @@ const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const upload = multer({ storage: multer.memoryStorage() });
 
 const app = express();
@@ -1129,6 +1130,32 @@ app.put('/api/invoices/:id/paid', async (req, res) => {
             .select().single();
         if (error) throw error;
         res.json(data);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// Download invoice (presigned S3 URL)
+app.get('/api/invoices/:id/download', async (req, res) => {
+    try {
+        const { data: inv, error: invErr } = await supabase
+            .from('invoices').select('s3_key, file_name').eq('id', req.params.id).single();
+        if (invErr || !inv?.s3_key) throw new Error('Invoice not found');
+
+        const { data: settingsData } = await supabase.from('settings').select('*');
+        const config = {};
+        settingsData.forEach(item => { config[item.key] = item.value; });
+
+        const s3Client = new S3Client({
+            region: config.aws_region,
+            credentials: { accessKeyId: config.aws_key, secretAccessKey: config.aws_secret }
+        });
+
+        const url = await getSignedUrl(s3Client, new GetObjectCommand({
+            Bucket: config.aws_bucket,
+            Key: inv.s3_key,
+            ResponseContentDisposition: `attachment; filename="${inv.file_name}"`
+        }), { expiresIn: 300 });
+
+        res.json({ url });
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
