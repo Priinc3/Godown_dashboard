@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCache } from '../../contexts/CacheContext';
-import { Save, Building, Clock, DollarSign } from 'lucide-react';
+import { Save, Building, Clock, DollarSign, Cloud, Webhook, Eye, EyeOff } from 'lucide-react';
 import clsx from 'clsx';
 
 export default function GeneralSettings() {
@@ -10,38 +10,49 @@ export default function GeneralSettings() {
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [showSecrets, setShowSecrets] = useState({});
 
     const [settings, setSettings] = useState({
         company_name: '',
         currency: 'INR',
-        shift_duration: 9
+        shift_duration: 9,
+        aws_key: '',
+        aws_secret: '',
+        aws_region: '',
+        aws_bucket: '',
+        n8n_webhook: ''
     });
 
-    useEffect(() => {
-        loadData();
-    }, []);
+    useEffect(() => { loadData(); }, []);
 
     const loadData = async () => {
         setLoading(true);
         try {
-            const data = await getCached('settings', '/settings');
+            const data = await getCached('settings', '/settings', true);
             if (data) {
-                setSettings({
+                setSettings(prev => ({
+                    ...prev,
                     company_name: data.company_name || '',
                     currency: data.currency || 'INR',
-                    shift_duration: data.shift_duration || 9
-                });
+                    shift_duration: data.shift_duration || 9,
+                    aws_key: data.aws_key || '',
+                    aws_secret: data.aws_secret || '',
+                    aws_region: data.aws_region || '',
+                    aws_bucket: data.aws_bucket || '',
+                    n8n_webhook: data.n8n_webhook || ''
+                }));
             }
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setLoading(false);
-        }
+        } catch (err) { console.error(err); }
+        finally { setLoading(false); }
     };
 
     const handleChange = (e) => {
         const { name, value } = e.target;
         setSettings(prev => ({ ...prev, [name]: value }));
+    };
+
+    const toggleSecret = (field) => {
+        setShowSecrets(prev => ({ ...prev, [field]: !prev[field] }));
     };
 
     const saveSettings = async (e) => {
@@ -53,17 +64,35 @@ export default function GeneralSettings() {
                 headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
                 body: JSON.stringify(settings)
             });
-
             if (!res.ok) throw new Error('Failed to save settings');
-
             invalidateCache('settings');
             alert('Settings saved successfully!');
-        } catch (err) {
-            alert(err.message);
-        } finally {
-            setSaving(false);
-        }
+        } catch (err) { alert(err.message); }
+        finally { setSaving(false); }
     };
+
+    const SecretInput = ({ name, label, placeholder }) => (
+        <div>
+            <label className="block text-sm font-medium text-text-main mb-1">{label}</label>
+            <div className="relative">
+                <input
+                    type={showSecrets[name] ? 'text' : 'password'}
+                    name={name}
+                    value={settings[name]}
+                    onChange={handleChange}
+                    className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none font-mono text-sm"
+                    placeholder={placeholder}
+                />
+                <button
+                    type="button"
+                    onClick={() => toggleSecret(name)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main p-1"
+                >
+                    {showSecrets[name] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+            </div>
+        </div>
+    );
 
     if (loading) return <div className="p-8 text-center text-text-muted animate-pulse">Loading settings...</div>;
 
@@ -71,28 +100,31 @@ export default function GeneralSettings() {
         <div className="space-y-6 max-w-2xl">
             <div className="page-header">
                 <h1 className="text-2xl font-bold text-text-main">General Settings</h1>
-                <p className="text-text-muted mt-1">Manage global application settings</p>
+                <p className="text-text-muted mt-1">Manage global application settings and integrations</p>
             </div>
 
-            <div className="bg-surface rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                <form onSubmit={saveSettings}>
-                    <div className="p-6 space-y-6">
+            <form onSubmit={saveSettings} className="space-y-6">
 
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-text-main mb-1 flex items-center gap-2">
-                                    <Building className="w-4 h-4 text-text-muted" /> Company Name
-                                </label>
-                                <input
-                                    type="text"
-                                    name="company_name"
-                                    value={settings.company_name}
-                                    onChange={handleChange}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
-                                    placeholder="e.g. Acme Corp"
-                                />
-                            </div>
-
+                {/* Company Settings */}
+                <div className="bg-surface rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+                        <h2 className="text-base font-semibold text-text-main flex items-center gap-2">
+                            <Building className="w-4 h-4 text-text-muted" /> Company
+                        </h2>
+                    </div>
+                    <div className="p-6 space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-text-main mb-1">Company Name</label>
+                            <input
+                                type="text"
+                                name="company_name"
+                                value={settings.company_name}
+                                onChange={handleChange}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                placeholder="e.g. Joyspoon"
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-sm font-medium text-text-main mb-1 flex items-center gap-2">
                                     <DollarSign className="w-4 h-4 text-text-muted" /> Currency
@@ -103,47 +135,108 @@ export default function GeneralSettings() {
                                     onChange={handleChange}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none bg-white"
                                 >
-                                    <option value="INR">₹ INR (Indian Rupee)</option>
-                                    <option value="USD">$ USD (US Dollar)</option>
-                                    <option value="EUR">€ EUR (Euro)</option>
-                                    <option value="GBP">£ GBP (British Pound)</option>
+                                    <option value="INR">₹ INR</option>
+                                    <option value="USD">$ USD</option>
+                                    <option value="EUR">€ EUR</option>
+                                    <option value="GBP">£ GBP</option>
                                 </select>
                             </div>
-
                             <div>
                                 <label className="block text-sm font-medium text-text-main mb-1 flex items-center gap-2">
-                                    <Clock className="w-4 h-4 text-text-muted" /> Standard Shift Duration (Hours)
+                                    <Clock className="w-4 h-4 text-text-muted" /> Shift Hours
                                 </label>
                                 <input
                                     type="number"
                                     name="shift_duration"
                                     value={settings.shift_duration}
                                     onChange={handleChange}
-                                    min="1"
-                                    max="24"
+                                    min="1" max="24"
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
                                 />
-                                <p className="text-xs text-text-muted mt-1">Used to calculate daily productivity targets and metrics.</p>
                             </div>
                         </div>
-
                     </div>
+                </div>
 
-                    <div className="px-6 py-4 bg-gray-50/50 border-t border-gray-100 flex justify-end">
-                        <button
-                            type="submit"
-                            disabled={saving}
-                            className={clsx(
-                                "bg-primary hover:bg-primary-dark text-white px-6 py-2 rounded-lg font-medium shadow-sm flex items-center gap-2 transition-colors",
-                                saving && "opacity-70 cursor-wait"
-                            )}
-                        >
-                            <Save className={clsx("w-5 h-5", saving && "animate-pulse")} />
-                            {saving ? 'Saving...' : 'Save Settings'}
-                        </button>
+                {/* AWS S3 Settings */}
+                <div className="bg-surface rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+                        <h2 className="text-base font-semibold text-text-main flex items-center gap-2">
+                            <Cloud className="w-4 h-4 text-text-muted" /> AWS S3 (Invoice Storage)
+                        </h2>
                     </div>
-                </form>
-            </div>
+                    <div className="p-6 space-y-4">
+                        <p className="text-xs text-text-muted -mt-1">Required for uploading invoice files. Credentials are stored in your Supabase database.</p>
+                        <div className="grid grid-cols-2 gap-4">
+                            <SecretInput name="aws_key" label="Access Key ID" placeholder="AKIA..." />
+                            <SecretInput name="aws_secret" label="Secret Access Key" placeholder="wJal..." />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-text-main mb-1">Region</label>
+                                <input
+                                    type="text"
+                                    name="aws_region"
+                                    value={settings.aws_region}
+                                    onChange={handleChange}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                    placeholder="e.g. ap-south-1"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-text-main mb-1">Bucket Name</label>
+                                <input
+                                    type="text"
+                                    name="aws_bucket"
+                                    value={settings.aws_bucket}
+                                    onChange={handleChange}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                    placeholder="e.g. joyspoon-invoices"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* n8n Webhook */}
+                <div className="bg-surface rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+                        <h2 className="text-base font-semibold text-text-main flex items-center gap-2">
+                            <Webhook className="w-4 h-4 text-text-muted" /> n8n Webhook
+                        </h2>
+                    </div>
+                    <div className="p-6 space-y-4">
+                        <p className="text-xs text-text-muted -mt-1">The webhook URL from your n8n invoice processing workflow.</p>
+                        <div>
+                            <label className="block text-sm font-medium text-text-main mb-1">Webhook URL</label>
+                            <input
+                                type="url"
+                                name="n8n_webhook"
+                                value={settings.n8n_webhook}
+                                onChange={handleChange}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none font-mono text-sm"
+                                placeholder="https://your-n8n.app/webhook/..."
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                {/* Save Button */}
+                <div className="flex justify-end">
+                    <button
+                        type="submit"
+                        disabled={saving}
+                        className={clsx(
+                            "bg-primary hover:bg-primary-dark text-white px-6 py-2.5 rounded-lg font-medium shadow-sm flex items-center gap-2 transition-colors",
+                            saving && "opacity-70 cursor-wait"
+                        )}
+                    >
+                        <Save className={clsx("w-5 h-5", saving && "animate-pulse")} />
+                        {saving ? 'Saving...' : 'Save All Settings'}
+                    </button>
+                </div>
+
+            </form>
         </div>
     );
 }

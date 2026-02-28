@@ -1,0 +1,134 @@
+{
+    "name": "Invoice Processing - Gemini OCR",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "invoice-process",
+                "responseMode": "onReceived",
+                "responseData": "allEntries",
+                "options": {}
+            },
+            "id": "webhook-trigger",
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 2,
+            "position": [
+                250,
+                300
+            ],
+            "webhookId": "invoice-process"
+        },
+        {
+            "parameters": {
+                "resource": "chat",
+                "model": "models/gemini-2.0-flash",
+                "messages": {
+                    "values": [
+                        {
+                            "content": "={{ 'You are an invoice data extractor. Analyze the invoice image at this URL: ' + $json.body.file_url + '\\n\\nExtract the following information and respond with ONLY valid JSON (no markdown, no code blocks, just raw JSON):\\n\\n{\\n  \"vendor_name\": \"the vendor/seller company name\",\\n  \"invoice_date\": \"YYYY-MM-DD format\",\\n  \"total_amount\": 0.00,\\n  \"category\": \"one of: Supplies, Equipment, Maintenance, Utilities, Packaging, Raw Materials, Transport, Other\",\\n  \"line_items\": [\\n    {\\n      \"description\": \"item name\",\\n      \"quantity\": 1,\\n      \"unit_price\": 0.00,\\n      \"amount\": 0.00\\n    }\\n  ]\\n}\\n\\nIf you cannot extract a field, use null. For total_amount, use the final total/grand total. Always return valid JSON.' }}"
+                        }
+                    ]
+                },
+                "options": {
+                    "temperature": 0.1
+                }
+            },
+            "id": "gemini-extract",
+            "name": "Gemini - Extract Invoice",
+            "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+            "typeVersion": 1,
+            "position": [
+                500,
+                300
+            ],
+            "credentials": {
+                "googleGeminiApi": {
+                    "id": "YOUR_GEMINI_CREDENTIAL_ID",
+                    "name": "Google Gemini API"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "// Parse the Gemini response into structured data\nconst geminiResponse = $input.first().json.text || $input.first().json.output || '';\n\nlet parsed;\ntry {\n  // Remove markdown code blocks if present\n  let cleaned = geminiResponse.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  // If JSON parsing fails, try to extract from the text\n  parsed = {\n    vendor_name: null,\n    invoice_date: null,\n    total_amount: null,\n    category: 'Other',\n    line_items: []\n  };\n}\n\n// Get the original webhook data\nconst webhookData = $('Webhook').first().json.body;\n\nreturn [{\n  json: {\n    invoice_id: webhookData.invoice_id,\n    vendor_name: parsed.vendor_name || null,\n    invoice_date: parsed.invoice_date || null,\n    total_amount: parsed.total_amount ? parseFloat(parsed.total_amount) : null,\n    category: parsed.category || 'Other',\n    line_items: parsed.line_items || [],\n    raw_extraction: geminiResponse,\n    status: 'Processed'\n  }\n}];"
+            },
+            "id": "parse-response",
+            "name": "Parse Gemini Response",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                750,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "method": "PUT",
+                "url": "={{ 'YOUR_VERCEL_URL/api/invoices/' + $json.invoice_id }}",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "specifyBody": "json",
+                "jsonBody": "={{ JSON.stringify({ vendor_name: $json.vendor_name, invoice_date: $json.invoice_date, total_amount: $json.total_amount, category: $json.category, line_items: $json.line_items, raw_extraction: $json.raw_extraction, status: $json.status }) }}"
+            },
+            "id": "update-invoice",
+            "name": "Update Invoice Status",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [
+                1000,
+                300
+            ]
+        }
+    ],
+    "connections": {
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Gemini - Extract Invoice",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Gemini - Extract Invoice": {
+            "main": [
+                [
+                    {
+                        "node": "Parse Gemini Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Parse Gemini Response": {
+            "main": [
+                [
+                    {
+                        "node": "Update Invoice Status",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "pinData": {},
+    "settings": {
+        "executionOrder": "v1"
+    },
+    "staticData": null,
+    "tags": [],
+    "triggerCount": 0
+}

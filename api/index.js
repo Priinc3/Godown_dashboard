@@ -878,10 +878,23 @@ app.get('/api/sales-analysis', async (req, res) => {
 });
 
 // ===== INVOICES API =====
+
+// List all invoices
+app.get('/api/invoices', async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('invoices')
+            .select('*')
+            .order('created_at', { ascending: false });
+        if (error) throw error;
+        res.json(data || []);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// Upload invoice → S3 → trigger n8n webhook
 app.post('/api/invoices/upload', upload.single('invoice'), async (req, res) => {
     try {
         const file = req.file;
-        const userId = req.body.userId;
         if (!file) throw new Error("No invoice file uploaded");
 
         // 1. Fetch AWS and n8n config from settings table
@@ -894,7 +907,7 @@ app.post('/api/invoices/upload', upload.single('invoice'), async (req, res) => {
         const { aws_key, aws_secret, aws_region, aws_bucket, n8n_webhook } = config;
 
         if (!aws_key || !aws_secret || !aws_region || !aws_bucket) {
-            throw new Error("AWS configuration is incomplete. Please check settings.");
+            throw new Error("AWS configuration is incomplete. Please check General Settings.");
         }
 
         // 2. Upload to S3
@@ -916,9 +929,8 @@ app.post('/api/invoices/upload', upload.single('invoice'), async (req, res) => {
 
         const fileUrl = `https://${aws_bucket}.s3.${aws_region}.amazonaws.com/${s3Key}`;
 
-        // 3. Save to Supabase DB
+        // 3. Save to Supabase
         const { data: invData, error: invError } = await supabase.from('invoices').insert([{
-            user_id: userId || null,
             file_name: file.originalname,
             file_url: fileUrl,
             status: 'Pending'
@@ -926,7 +938,7 @@ app.post('/api/invoices/upload', upload.single('invoice'), async (req, res) => {
 
         if (invError) throw invError;
 
-        // 4. Trigger n8n Webhook asynchronously
+        // 4. Trigger n8n webhook asynchronously
         if (n8n_webhook) {
             fetch(n8n_webhook, {
                 method: 'POST',
@@ -935,10 +947,9 @@ app.post('/api/invoices/upload', upload.single('invoice'), async (req, res) => {
                     invoice_id: invData.id,
                     file_url: fileUrl,
                     file_name: file.originalname,
-                    user_id: userId,
                     timestamp: new Date().toISOString()
                 })
-            }).catch(e => console.error("Error triggering n8n webhook:", e));
+            }).catch(e => console.error("n8n webhook error:", e));
         }
 
         res.json({ success: true, invoice: invData });
@@ -948,9 +959,37 @@ app.post('/api/invoices/upload', upload.single('invoice'), async (req, res) => {
     }
 });
 
+// Update invoice (n8n calls this with extracted data)
+app.put('/api/invoices/:id', async (req, res) => {
+    try {
+        const { vendor_name, invoice_date, total_amount, category, line_items, raw_extraction, status } = req.body;
+        const updates = {};
+
+        if (vendor_name !== undefined) updates.vendor_name = vendor_name;
+        if (invoice_date !== undefined) updates.invoice_date = invoice_date;
+        if (total_amount !== undefined) updates.total_amount = total_amount;
+        if (category !== undefined) updates.category = category;
+        if (line_items !== undefined) updates.line_items = line_items;
+        if (raw_extraction !== undefined) updates.raw_extraction = raw_extraction;
+        if (status !== undefined) updates.status = status;
+        updates.processed_at = new Date().toISOString();
+
+        const { data, error } = await supabase
+            .from('invoices')
+            .update(updates)
+            .eq('id', req.params.id)
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.json(data);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
 if (process.env.NODE_ENV !== 'production') {
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
 
 module.exports = app;
+
 

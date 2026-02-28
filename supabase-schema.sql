@@ -109,6 +109,23 @@ INSERT INTO settings (key, value) VALUES
   ('shift_duration', '9')
 ON CONFLICT (key) DO NOTHING;
 
+-- ===== INVOICES TABLE =====
+CREATE TABLE IF NOT EXISTS invoices (
+  id SERIAL PRIMARY KEY,
+  file_name VARCHAR(255) NOT NULL,
+  file_url TEXT NOT NULL,
+  status VARCHAR(50) DEFAULT 'Pending',
+  -- Extracted by Gemini via n8n
+  vendor_name VARCHAR(255),
+  invoice_date DATE,
+  total_amount DECIMAL(12, 2),
+  category VARCHAR(100),
+  line_items JSONB,
+  raw_extraction TEXT,
+  processed_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- ===== ENABLE ROW LEVEL SECURITY (Optional) =====
 -- Uncomment these if you want to enable RLS
 
