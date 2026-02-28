@@ -933,6 +933,7 @@ app.post('/api/invoices/upload', upload.single('invoice'), async (req, res) => {
         const { data: invData, error: invError } = await supabase.from('invoices').insert([{
             file_name: file.originalname,
             file_url: fileUrl,
+            s3_key: s3Key,
             status: 'Pending'
         }]).select().single();
 
@@ -947,6 +948,7 @@ app.post('/api/invoices/upload', upload.single('invoice'), async (req, res) => {
                     invoice_id: invData.id,
                     file_url: fileUrl,
                     file_name: file.originalname,
+                    s3_key: s3Key,
                     timestamp: new Date().toISOString()
                 })
             }).catch(e => console.error("n8n webhook error:", e));
