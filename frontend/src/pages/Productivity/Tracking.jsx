@@ -224,6 +224,9 @@ export default function Tracking() {
                                             <div className="text-sm text-text-muted mt-1">
                                                 {entry.work_type?.name || '—'}
                                                 {entry.product?.name && <span> &bull; {entry.product.name}</span>}
+                                                <span className="ml-2 text-xs text-gray-400">
+                                                    🕐 {new Date(entry.start_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                                                </span>
                                             </div>
                                         </div>
 
