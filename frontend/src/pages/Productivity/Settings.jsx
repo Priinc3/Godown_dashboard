@@ -171,7 +171,7 @@ export default function Settings() {
     return (
         <div className="space-y-6">
             <div className="page-header">
-                <h1 className="text-2xl font-bold text-text-main">Productivity Settings</h1>
+                <h1 className="text-2xl font-bold text-text-main">Production Settings</h1>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

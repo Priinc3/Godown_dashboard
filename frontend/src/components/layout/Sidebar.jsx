@@ -137,7 +137,7 @@ export default function Sidebar() {
                 {/* Navigation */}
                 <nav className="flex-1 overflow-y-auto py-4 custom-scrollbar">
 
-                    <Folder title="Productivity" icon={BarChart2} folderKey="productivity">
+                    <Folder title="Production Joyspoon" icon={BarChart2} folderKey="productivity">
                         <NavItem to="/productivity/tracking">Tracking</NavItem>
                         <NavItem to="/productivity/analysis">Analysis</NavItem>
                         <NavItem to="/productivity/settings">Settings</NavItem>
