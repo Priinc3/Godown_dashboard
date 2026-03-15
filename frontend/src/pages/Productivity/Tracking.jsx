@@ -1,21 +1,35 @@
 import { useState, useEffect } from 'react';
 import { useCache } from '../../contexts/CacheContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { Plus, Edit2, CheckCircle2, Clock, Trash2, X } from 'lucide-react';
+import { Plus, Edit2, CheckCircle2, Clock, Trash2, X, Timer } from 'lucide-react';
 import clsx from 'clsx';
+
+// Format time as 12-hour HH:MM AM/PM
+const fmtTime = (iso) => {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+};
+
+// Format duration between two ISO strings
+const fmtDuration = (start, end) => {
+    if (!start || !end) return null;
+    const mins = Math.round((new Date(end) - new Date(start)) / 60000);
+    if (mins < 60) return `${mins}m`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+};
 
 export default function Tracking() {
     const [entries, setEntries] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editEntry, setEditEntry] = useState(null); // null = add mode
+    const [editEntry, setEditEntry] = useState(null);
     const [saving, setSaving] = useState(false);
 
-    // New entry form
     const [selectedEmployee, setSelectedEmployee] = useState('');
     const [tasks, setTasks] = useState([{ workType: '', product: '', unit: '', target: '' }]);
 
-    // Edit form
     const [editForm, setEditForm] = useState({
         employee_id: '', work_type_id: '', product_id: '', unit_id: '',
         date: '', target_quantity: '', actual_quantity: '', notes: ''
@@ -36,9 +50,7 @@ export default function Tracking() {
         ]).catch(console.error);
     }, []);
 
-    useEffect(() => {
-        loadEntries();
-    }, [selectedDate]);
+    useEffect(() => { loadEntries(); }, [selectedDate]);
 
     const loadEntries = async () => {
         setLoading(true);
@@ -46,25 +58,29 @@ export default function Tracking() {
             const res = await fetch('/api/work-entries', { headers: getAuthHeaders() });
             if (res.ok) {
                 const data = await res.json();
-                // Filter by selectedDate based on start_time
                 const filtered = data.filter(e => {
                     const entryDate = new Date(e.start_time).toISOString().split('T')[0];
                     return entryDate === selectedDate;
                 });
-                // Sort: in-progress first, then by date desc
                 filtered.sort((a, b) => {
                     if (a.status === 'in-progress' && b.status !== 'in-progress') return -1;
                     if (b.status === 'in-progress' && a.status !== 'in-progress') return 1;
-                    return new Date(b.start_time) - new Date(a.start_time);
+                    return new Date(a.start_time) - new Date(b.start_time);
                 });
                 setEntries(filtered);
             }
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setLoading(false);
-        }
+        } catch (e) { console.error(e); }
+        finally { setLoading(false); }
     };
+
+    // Group entries by employee
+    const grouped = entries.reduce((acc, entry) => {
+        const empId = entry.employee_id || entry.employee?.id || 'unknown';
+        const empName = entry.employee?.name || 'Unknown';
+        if (!acc[empId]) acc[empId] = { name: empName, entries: [] };
+        acc[empId].entries.push(entry);
+        return acc;
+    }, {});
 
     const openAddModal = () => {
         setEditEntry(null);
@@ -118,20 +134,16 @@ export default function Tracking() {
             invalidateCache('entries');
             setIsModalOpen(false);
             loadEntries();
-        } catch (err) {
-            alert(err.message);
-        } finally {
-            setSaving(false);
-        }
+        } catch (err) { alert(err.message); }
+        finally { setSaving(false); }
     };
 
     const submitEdit = async (e) => {
         e.preventDefault();
         setSaving(true);
-        const { actual_quantity, notes, target_quantity } = editForm;
+        const { actual_quantity, notes } = editForm;
         try {
             if (actual_quantity !== '') {
-                // auto-complete when actual quantity provided
                 await fetch(`/api/work-entries/${editEntry.id}/complete`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
@@ -146,11 +158,8 @@ export default function Tracking() {
             }
             setIsModalOpen(false);
             loadEntries();
-        } catch (err) {
-            alert(err.message);
-        } finally {
-            setSaving(false);
-        }
+        } catch (err) { alert(err.message); }
+        finally { setSaving(false); }
     };
 
     const deleteEntry = async (id) => {
@@ -161,21 +170,14 @@ export default function Tracking() {
         } catch (err) { alert(err.message); }
     };
 
-    const effClass = (e) => {
-        if (e.actual_quantity == null) return '';
-        const eff = (e.actual_quantity / e.target_quantity) * 100;
-        if (eff >= 100) return 'text-green-600';
-        if (eff >= 80) return 'text-text-main';
-        return 'text-red-600';
-    };
-
     const eff = (e) => {
-        if (e.actual_quantity == null) return '—';
-        return Math.round((e.actual_quantity / e.target_quantity) * 100) + '%';
+        if (e.actual_quantity == null) return null;
+        return Math.round((e.actual_quantity / e.target_quantity) * 100);
     };
 
     return (
         <div className="space-y-6">
+            {/* Header */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <h1 className="text-2xl font-bold text-text-main">Production Tracking</h1>
                 <div className="flex items-center gap-3">
@@ -183,91 +185,168 @@ export default function Tracking() {
                         type="date"
                         value={selectedDate}
                         onChange={e => setSelectedDate(e.target.value)}
-                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none text-sm"
                     />
                     <button
                         onClick={openAddModal}
-                        className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-dark transition-colors shadow-sm whitespace-nowrap"
+                        className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-dark transition-colors shadow-sm whitespace-nowrap text-sm font-medium"
                     >
                         <Plus className="w-4 h-4" /> New Entry
                     </button>
                 </div>
             </div>
 
-            <div className="bg-surface rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                {loading ? (
-                    <div className="p-8 text-center text-text-muted animate-pulse">Loading entries...</div>
-                ) : entries.length === 0 ? (
-                    <div className="p-12 text-center">
-                        <Clock className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-                        <p className="text-text-muted font-medium">No entries for this date.</p>
-                        <p className="text-text-muted text-sm mt-1">Click "New Entry" to add one.</p>
-                    </div>
-                ) : (
-                    <div className="divide-y divide-gray-100">
-                        {entries.map(entry => {
-                            const isComplete = entry.status === 'complete';
-                            return (
-                                <div key={entry.id} className="px-6 py-4 hover:bg-gray-50/50 transition-colors">
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-3 flex-wrap">
-                                                <span className="font-semibold text-text-main">{entry.employee?.name || '—'}</span>
-                                                <span className={clsx(
-                                                    "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium",
-                                                    isComplete ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-                                                )}>
-                                                    {isComplete ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
-                                                    {isComplete ? 'Complete' : 'In Progress'}
-                                                </span>
-                                            </div>
-                                            <div className="text-sm text-text-muted mt-1">
-                                                {entry.work_type?.name || '—'}
-                                                {entry.product?.name && <span> &bull; {entry.product.name}</span>}
-                                                <span className="ml-2 text-xs text-gray-400">
-                                                    🕐 {new Date(entry.start_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
-                                                </span>
-                                            </div>
-                                        </div>
+            {/* Content */}
+            {loading ? (
+                <div className="p-8 text-center text-text-muted animate-pulse">Loading entries...</div>
+            ) : Object.keys(grouped).length === 0 ? (
+                <div className="bg-surface rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+                    <Clock className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                    <p className="text-text-muted font-medium">No entries for this date.</p>
+                    <p className="text-text-muted text-sm mt-1">Click "New Entry" to add one.</p>
+                </div>
+            ) : (
+                <div className="space-y-4">
+                    {Object.entries(grouped).map(([empId, group]) => {
+                        const completedCount = group.entries.filter(e => e.status === 'complete').length;
+                        const totalCount = group.entries.length;
+                        const avgEff = (() => {
+                            const done = group.entries.filter(e => e.actual_quantity != null);
+                            if (!done.length) return null;
+                            return Math.round(done.reduce((s, e) => s + (e.actual_quantity / e.target_quantity) * 100, 0) / done.length);
+                        })();
 
-                                        <div className="flex items-center gap-6 text-sm">
-                                            <div className="text-center">
-                                                <div className="text-xs text-text-muted font-medium uppercase tracking-wider">Target</div>
-                                                <div className="font-semibold text-text-main">{entry.target_quantity}</div>
-                                            </div>
-                                            <div className="text-center">
-                                                <div className="text-xs text-text-muted font-medium uppercase tracking-wider">Actual</div>
-                                                <div className="font-semibold text-text-main">{entry.actual_quantity ?? '—'}</div>
-                                            </div>
-                                            <div className="text-center">
-                                                <div className="text-xs text-text-muted font-medium uppercase tracking-wider">Efficiency</div>
-                                                <div className={clsx("font-bold", effClass(entry))}>{eff(entry)}</div>
-                                            </div>
-
-                                            <div className="flex items-center gap-2">
-                                                <button
-                                                    onClick={() => openEditModal(entry)}
-                                                    className="p-2 text-text-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
-                                                    title="Edit"
-                                                >
-                                                    <Edit2 className="w-4 h-4" />
-                                                </button>
-                                                <button
-                                                    onClick={() => deleteEntry(entry.id)}
-                                                    className="p-2 text-text-muted hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                    title="Delete"
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </button>
-                                            </div>
+                        return (
+                            <div key={empId} className="bg-surface rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                                {/* Employee Header */}
+                                <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-bold">
+                                            {group.name.charAt(0).toUpperCase()}
                                         </div>
+                                        <span className="font-semibold text-text-main">{group.name}</span>
+                                        <span className="text-xs text-text-muted">{completedCount}/{totalCount} done</span>
                                     </div>
+                                    {avgEff !== null && (
+                                        <span className={clsx(
+                                            "text-sm font-bold",
+                                            avgEff >= 100 ? 'text-green-600' : avgEff >= 80 ? 'text-text-main' : 'text-red-500'
+                                        )}>
+                                            avg {avgEff}%
+                                        </span>
+                                    )}
                                 </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </div>
+
+                                {/* Task Rows */}
+                                <div className="divide-y divide-gray-50">
+                                    {group.entries.map((entry, idx) => {
+                                        const isComplete = entry.status === 'complete';
+                                        const efficiency = eff(entry);
+                                        const duration = fmtDuration(entry.start_time, entry.end_time);
+
+                                        return (
+                                            <div key={entry.id} className="px-5 py-4 hover:bg-gray-50/60 transition-colors">
+                                                <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+
+                                                    {/* Left: task info */}
+                                                    <div className="flex-1 min-w-0">
+                                                        {/* Task label + status */}
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">
+                                                                Task {idx + 1}
+                                                            </span>
+                                                            <span className={clsx(
+                                                                "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
+                                                                isComplete ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                                                            )}>
+                                                                {isComplete ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                                                                {isComplete ? 'Complete' : 'In Progress'}
+                                                            </span>
+                                                        </div>
+
+                                                        {/* Work type + product */}
+                                                        <div className="font-medium text-text-main mt-0.5">
+                                                            {entry.work_type?.name || '—'}
+                                                            {entry.product?.name && (
+                                                                <span className="text-text-muted font-normal"> &bull; {entry.product.name}</span>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Timing row */}
+                                                        <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-gray-400">
+                                                            <span className="flex items-center gap-1">
+                                                                <Clock className="w-3 h-3" />
+                                                                <span className="font-medium text-gray-500">Created</span>
+                                                                {fmtTime(entry.start_time)}
+                                                            </span>
+                                                            {entry.end_time && (
+                                                                <>
+                                                                    <span className="text-gray-300">→</span>
+                                                                    <span className="flex items-center gap-1">
+                                                                        <CheckCircle2 className="w-3 h-3 text-green-400" />
+                                                                        <span className="font-medium text-gray-500">Ended</span>
+                                                                        {fmtTime(entry.end_time)}
+                                                                    </span>
+                                                                    {duration && (
+                                                                        <>
+                                                                            <span className="text-gray-300">·</span>
+                                                                            <span className="flex items-center gap-1 text-primary font-semibold">
+                                                                                <Timer className="w-3 h-3" />
+                                                                                {duration}
+                                                                            </span>
+                                                                        </>
+                                                                    )}
+                                                                </>
+                                                            )}
+                                                            {!entry.end_time && (
+                                                                <span className="text-amber-500 font-medium">Running...</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Right: stats + actions */}
+                                                    <div className="flex items-center gap-5 sm:gap-6 shrink-0">
+                                                        <div className="text-center">
+                                                            <div className="text-xs text-text-muted font-medium uppercase tracking-wider">Target</div>
+                                                            <div className="font-semibold text-text-main">{entry.target_quantity}</div>
+                                                        </div>
+                                                        <div className="text-center">
+                                                            <div className="text-xs text-text-muted font-medium uppercase tracking-wider">Actual</div>
+                                                            <div className="font-semibold text-text-main">{entry.actual_quantity ?? '—'}</div>
+                                                        </div>
+                                                        <div className="text-center min-w-[52px]">
+                                                            <div className="text-xs text-text-muted font-medium uppercase tracking-wider">Efficiency</div>
+                                                            <div className={clsx("font-bold", efficiency == null ? 'text-text-muted' : efficiency >= 100 ? 'text-green-600' : efficiency >= 80 ? 'text-text-main' : 'text-red-500')}>
+                                                                {efficiency != null ? efficiency + '%' : '—'}
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-1">
+                                                            <button
+                                                                onClick={() => openEditModal(entry)}
+                                                                className="p-2 text-text-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                                                                title="Edit"
+                                                            >
+                                                                <Edit2 className="w-4 h-4" />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => deleteEntry(entry.id)}
+                                                                className="p-2 text-text-muted hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                                title="Delete"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
 
             {/* Modal */}
             {isModalOpen && (
